@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16
+    container_name: amenities-db
+    environment:
+      POSTGRES_USER: amen
+      POSTGRES_PASSWORD: amenities
+      POSTGRES_DB: amenities
+    ports:
+      - "5433:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  backend:
+    build: ./backend
+    container_name: amenities-backend
+    environment:
+      DATABASE_URL: postgres://amen:amenities@db:5432/amenities
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+volumes:
+  db_data:
+
