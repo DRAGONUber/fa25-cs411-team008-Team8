@@ -101,3 +101,30 @@ USING gin (Address gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_amenity_notes_trgm
 ON Amenity
 USING gin (Notes gin_trgm_ops);
+
+----------------------------------------------------------
+
+CREATE OR REPLACE PROCEDURE sp_upsert_review(
+    p_user_id INT,
+    p_amenity_id INT,
+    p_rating DECIMAL,
+    p_details JSONB
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Control Structure: IF/ELSE
+    IF EXISTS (SELECT 1 FROM Review WHERE UserId = p_user_id AND AmenityId = p_amenity_id) THEN
+        -- Advanced Query 1: Update existing
+        UPDATE Review
+        SET OverallRating = p_rating,
+            RatingDetails = p_details,
+            TimeStamp = NOW()
+        WHERE UserId = p_user_id AND AmenityId = p_amenity_id;
+    ELSE
+        -- Advanced Query 2: Insert new
+        INSERT INTO Review (UserId, AmenityId, OverallRating, RatingDetails)
+        VALUES (p_user_id, p_amenity_id, p_rating, p_details);
+    END IF;
+END;
+$$;

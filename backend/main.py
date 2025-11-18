@@ -81,6 +81,8 @@ def list_amenities(
             a.notes,
             b.name      AS building_name,
             ad.address  AS address,
+            ad.lat,
+            ad.lon,
             COALESCE(AVG(r.overallrating), 0) AS avg_rating,
             COUNT(r.reviewid)                 AS review_count
         FROM amenity a
@@ -98,7 +100,7 @@ def list_amenities(
         where_clauses.append("a.type = %s")
         params.append(amenity_type)
 
-    # Keyword filter — using %...% in params instead of concatenation
+    # Keyword filter
     if keyword:
         kw = f"%{keyword.strip()}%"
         where_clauses.append(
@@ -111,6 +113,7 @@ def list_amenities(
         query += " WHERE " + " AND ".join(where_clauses)
 
     # GROUP BY, ORDER, LIMIT/OFFSET
+    # *** FIX IS HERE: Added ad.lat and ad.lon ***
     query += """
         GROUP BY
             a.amenityid,
@@ -118,7 +121,9 @@ def list_amenities(
             a.floor,
             a.notes,
             b.name,
-            ad.address
+            ad.address,
+            ad.lat,
+            ad.lon
         ORDER BY
             avg_rating DESC,
             review_count DESC,
@@ -135,7 +140,6 @@ def list_amenities(
         rows = cur.fetchall()
         return rows
     except psycopg2.Error as e:
-        # This will give you a clear DB error instead of a generic 500
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
@@ -313,3 +317,22 @@ def delete_review(review_id: int):
         return {"deleted_review_id": row["reviewid"]}
     finally:
         conn.close()
+
+@app.post("/reviews/upsert")
+def upsert_review(review: ReviewCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        # Call the stored procedure
+        cur.execute(
+            "CALL sp_upsert_review(%s, %s, %s, %s)",
+            (review.user_id, review.amenity_id, review.overall_rating, Json(review.rating_details))
+        )
+        conn.commit()
+        return {"message": "Review upserted successfully"}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
