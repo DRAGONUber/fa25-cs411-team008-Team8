@@ -336,3 +336,110 @@ def upsert_review(review: ReviewCreate):
     finally:
         conn.close()
 
+
+# ----------------------------------------------------------------
+# Leaderboard Endpoints - Advanced SQL Queries
+# ----------------------------------------------------------------
+
+@app.get("/leaderboard/clean-bathrooms-vending")
+def leaderboard_clean_bathrooms_vending():
+    """
+    Query 1: Top 15 Buildings for Clean Bathrooms AND a Vending Machine
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        query = """
+            SELECT
+                B.Name AS building_name,
+                A.Type AS amenity_type,
+                ROUND(CAST(AVG(R.OverallRating) AS NUMERIC), 2) AS avg_bathroom_rating,
+                A_D.Address AS address
+            FROM Building B
+            JOIN Amenity A ON B.BuildingId = A.BuildingId
+            JOIN Review R ON A.AmenityId = R.AmenityId
+            JOIN Address A_D ON B.AddressId = A_D.AddressId
+            JOIN Amenity A2 ON A2.BuildingId = B.BuildingId AND A2.Type = 'VendingMachine'
+            WHERE A.Type = 'Bathroom'
+            GROUP BY B.Name, A.Type, A_D.Address
+            ORDER BY Avg_Bathroom_Rating DESC
+            LIMIT 15
+        """
+        cur.execute(query)
+        rows = cur.fetchall()
+        return rows
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/leaderboard/coldest-fountains")
+def leaderboard_coldest_fountains():
+    """
+    Query 2: Coldest Water Fountain Ranking - Top 15 Fountains
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        query = """
+            SELECT
+                B.Name AS building_name,
+                A.Floor AS floor,
+                A.Notes AS notes,
+                ROUND(CAST(AVG(R.OverallRating) AS NUMERIC), 2) AS avg_rating,
+                CT.Cold_Tag_Count AS cold_tag_count
+            FROM Building B
+            JOIN Amenity A ON B.BuildingId = A.BuildingId
+            JOIN Review R ON A.AmenityId = R.AmenityId
+            JOIN (
+                SELECT A2.AmenityId, COUNT(AT.TagId) AS Cold_Tag_Count
+                FROM Amenity A2
+                JOIN AmenityTag AT ON A2.AmenityId = AT.AmenityId
+                JOIN Tag T ON AT.TagId = T.TagId
+                WHERE A2.Type = 'WaterFountain' AND T.Label = 'ColdWater'
+                GROUP BY A2.AmenityId
+            ) AS CT ON A.AmenityId = CT.AmenityId
+            GROUP BY B.Name, A.Floor, A.Notes, CT.Cold_Tag_Count
+            ORDER BY CT.Cold_Tag_Count DESC, Avg_Rating DESC
+            LIMIT 15
+        """
+        cur.execute(query)
+        rows = cur.fetchall()
+        return rows
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/leaderboard/overall-amenities")
+def leaderboard_overall_amenities():
+    """
+    Query 4: Overall Amenity Ranking by Rating (Top 15)
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        query = """
+            SELECT
+                B.Name AS building_name,
+                A.Type AS type,
+                A.Floor AS floor,
+                ROUND(CAST(AVG(R.OverallRating) AS NUMERIC), 2) AS avg_rating,
+                COUNT(R.ReviewId) AS review_count
+            FROM Building B
+            JOIN Amenity A ON B.BuildingId = A.BuildingId
+            JOIN Review R ON A.AmenityId = R.AmenityId
+            GROUP BY B.Name, A.Type, A.Floor
+            ORDER BY Avg_Rating DESC, Review_Count DESC
+            LIMIT 15
+        """
+        cur.execute(query)
+        rows = cur.fetchall()
+        return rows
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
