@@ -325,19 +325,18 @@ export default function App() {
             </p>
           </div>
         )}
+      </section>
 
-        <section className="legend">
+      <section className="map-panel">
+        <div ref={mapNodeRef} id="map" role="presentation" />
+        <div className="map-legend">
           <p className="eyebrow">Legend</p>
           <ul>
             <li><span className="dot dot-water"></span> Water Fountain</li>
             <li><span className="dot dot-bathroom"></span> Bathroom</li>
             <li><span className="dot dot-vending"></span> Vending Machine</li>
           </ul>
-        </section>
-      </section>
-
-      <section className="map-panel">
-        <div ref={mapNodeRef} id="map" role="presentation" />
+        </div>
       </section>
 
       {/* Leaderboard Popup */}

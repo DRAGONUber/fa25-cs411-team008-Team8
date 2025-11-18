@@ -1,15 +1,17 @@
 # fa25-cs411-team008-Team8
-# Campus Amenities Rating – Backend + Database
+# Campus Amenities Rating – Full Stack Application
 
 This project is a campus amenities rating app for UIUC.  
-It stores information about **buildings, bathrooms, water fountains, vending machines, tags, and reviews**, and exposes a REST API for use by a frontend.
+It stores information about **buildings, bathrooms, water fountains, vending machines, tags, and reviews**, and provides both a REST API backend and an interactive React frontend with map visualization.
 
-This README documents the **backend + database stack we have set up so far**, including:
+This README documents the **complete full-stack application**, including:
 
 - Dockerized **PostgreSQL** + **FastAPI** backend
+- **React** frontend with **Leaflet** interactive map
 - Schema definition (`db/init.sql`)
 - Data seeding script (`backend/scripts/seed_data.py`)
-- The REST API endpoints currently implemented
+- Complete REST API endpoints
+- Interactive map features and leaderboards
 
 ---
 
@@ -39,8 +41,17 @@ fa25-cs411-team008-Team8/
 │   └── scripts/
 │       └── seed_data.py        # Scraper + random data seeder
 │
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx             # Main React component with map and UI
+│   │   ├── App.css             # Component styles
+│   │   ├── main.jsx            # React entry point
+│   │   └── index.css            # Global styles
+│   ├── package.json            # Node.js dependencies
+│   └── vite.config.js          # Vite build configuration
+│
 ├── db/
-│   └── init.sql                # Database schema (tables, constraints, indexes)
+│   └── init.sql                # Database schema (tables, constraints, indexes, stored procedures)
 │
 ├── docker-compose.yml          # Orchestrates db + backend containers
 └── README.md                   # (this file)
@@ -235,62 +246,183 @@ curl -X PUT "http://localhost:8000/reviews/2001" \
 9.6. DELETE /reviews/{review_id} — Delete Review
 curl -X DELETE "http://localhost:8000/reviews/2001"
 
-10. Development Workflow
-Start system
+9.7. POST /reviews/upsert — Upsert Review (via Stored Procedure)
+curl -X POST "http://localhost:8000/reviews/upsert" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "user_id": 1,
+        "amenity_id": 10573,
+        "overall_rating": 4.5,
+        "rating_details": {"flow": 4, "temperature": 5}
+      }'
+
+9.8. GET /leaderboard/clean-bathrooms-vending — Top 15 Buildings with Clean Bathrooms + Vending
+Returns buildings that have both highly-rated bathrooms and vending machines.
+curl "http://localhost:8000/leaderboard/clean-bathrooms-vending"
+
+9.9. GET /leaderboard/coldest-fountains — Top 15 Coldest Water Fountains
+Returns water fountains ranked by cold water tag count and average rating.
+curl "http://localhost:8000/leaderboard/coldest-fountains"
+
+9.10. GET /leaderboard/overall-amenities — Top 15 Overall Amenities
+Returns the highest-rated amenities across all types, sorted by rating and review count.
+curl "http://localhost:8000/leaderboard/overall-amenities"
+
+10. Frontend Application
+
+The frontend is a React application built with Vite and uses Leaflet for interactive map visualization.
+
+10.1. Running the Frontend
+
+From the `frontend/` directory:
+
+```bash
+cd frontend
+npm install          # First time only
+npm run dev          # Start development server
+```
+
+The frontend will be available at `http://localhost:5173` (or the port Vite assigns).
+
+10.2. Frontend Features
+
+**Interactive Map (Leaflet)**
+- Real-time map visualization of all amenities in Champaign-Urbana
+- Color-coded markers by amenity type:
+  - 🔵 Blue: Water Fountains
+  - 🟣 Purple: Bathrooms
+  - 🟠 Orange: Vending Machines
+- Click markers to view detailed information
+- Map legend overlay in upper-right corner
+
+**Search Functionality**
+- Keyword search across building names, addresses, and amenity notes
+- Real-time filtering of map markers
+- Search bar located at the top of the sidebar
+
+**Amenity Details Panel**
+- Displays when an amenity marker is clicked
+- Shows building name, address, floor, and notes
+- Community rating display with star visualization
+- Review count and average rating
+
+**Rating Submission**
+- Interactive 5-star rating system
+- Submit ratings directly from the map interface
+- Real-time feedback on submission status
+- Ratings are stored via POST /reviews endpoint
+
+**Leaderboard System**
+- Accessible via "🏆 Leaderboard" button below search bar
+- Three interactive tabs:
+  1. Clean Bathrooms + Vending: Top 15 buildings with highly-rated bathrooms that also have vending machines
+  2. Coldest Fountains: Top 15 water fountains ranked by cold water tags and ratings
+  3. Overall Top Amenities: Top 15 amenities across all types by rating and review count
+- Lazy-loaded data (fetches when tab is first opened)
+- Ranked display (#1-#15) with detailed information
+
+**Responsive Design**
+- Optimized for desktop and mobile viewports
+- No-scroll layout that fits within viewport at 100% zoom
+- Mobile-friendly popup modals and navigation
+
+10.3. Frontend Technology Stack
+
+- React 19.2.0
+- Vite 7.2.2 (build tool)
+- Leaflet 1.9.4 (map library)
+- Modern CSS with flexbox and responsive design
+
+11. Advanced Database Features
+
+11.1. Stored Procedures
+
+✓ `sp_upsert_review` — Upsert review logic
+- Automatically updates existing reviews or inserts new ones
+- Called via POST /reviews/upsert endpoint
+- Implements IF/ELSE control structures
+
+11.2. Constraints
+
+✓ CHECK constraints on rating values (0-5)
+✓ CHECK constraints on amenity types
+✓ UNIQUE constraint: One review per user per amenity
+✓ Foreign key relationships across all tables
+
+11.3. Advanced SQL Queries
+
+The leaderboard endpoints implement complex SQL queries including:
+- Multi-table JOINs with subqueries
+- Aggregations (AVG, COUNT)
+- GROUP BY and ORDER BY with multiple criteria
+- Filtering by amenity types and tags
+
+12. API Integration
+
+The frontend communicates with the backend API using:
+- Base URL: `http://localhost:8000` (configurable via `VITE_API_BASE` environment variable)
+- CORS enabled for local development
+- JSON request/response format
+
+13. Development Workflow
+
+13.1. Start Backend System
+```bash
 docker compose up --build
+```
 
-Stop system
+13.2. Start Frontend (Separate Terminal)
+```bash
+cd frontend
+npm run dev
+```
 
-Press Ctrl + C in Terminal #1, then:
+13.3. Stop System
 
+Press Ctrl + C in backend terminal, then:
+```bash
 docker compose down
+```
 
-Rebuild after backend code changes
+13.4. Rebuild After Backend Code Changes
+```bash
 docker compose down
 docker compose up --build
+```
 
-Re-seed database
+13.5. Re-seed Database
+```bash
 docker compose exec backend python scripts/seed_data.py
+```
 
-Fresh DB (optional)
+13.6. Fresh DB (Optional)
+```bash
 docker compose down
 docker volume rm fa25-cs411-team008-team8_db_data
 docker compose up --build
+```
 
-11. Next Steps (Planned — Not Yet Implemented)
+13.7. Frontend Build for Production
+```bash
+cd frontend
+npm run build
+```
 
-These features will complete Stage 4:
+Built files will be in `frontend/dist/` directory.
 
-✓ Stored procedure (PL/pgSQL)
+14. Project Status
 
-Upsert review
+✅ **Completed Features:**
 
-Auto-normalize ratings
-
-Custom logic (update timestamps, maintain stats)
-
-✓ Trigger + helper table
-
-Maintain rolling average rating
-
-Maintain review counts
-
-Update stats instantly on insert/update/delete
-
-✓ Transactional endpoints
-
-Endpoint that calls stored procedure
-
-Endpoint that runs multi-step transaction
-
-✓ Frontend (React)
-
-Search UI
-
-Amenity detail pages
-
-Review submission + editing
-
-Tag display
-
-This README reflects the system as currently implemented and will be updated as new DB features and frontend components are added.
+- Full CRUD operations for Reviews (Create, Read, Update, Delete)
+- Keyword search across buildings, addresses, and amenity notes
+- Advanced SQL queries with complex JOINs and aggregations
+- Stored procedure for review upsert operations
+- Database constraints (CHECK, UNIQUE, Foreign Keys)
+- React frontend with interactive Leaflet map
+- Real-time search and filtering
+- Interactive rating submission system
+- Leaderboard system with three categories
+- Responsive design for desktop and mobile
+- Map legend overlay
+- Amenity detail panels with community ratings

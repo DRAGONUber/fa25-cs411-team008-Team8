@@ -199,21 +199,36 @@ main.layout {
   color: #dc2626;
 }
 
-.legend {
-  margin-top: auto;
+.map-legend {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: white;
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  z-index: 1000;
+  min-width: 180px;
 }
 
-.legend ul {
+.map-legend .eyebrow {
+  margin-bottom: 0.5rem;
+}
+
+.map-legend ul {
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin: 0;
+  padding: 0;
 }
 
-.legend li {
+.map-legend li {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-size: 0.9rem;
 }
 
 .dot {
