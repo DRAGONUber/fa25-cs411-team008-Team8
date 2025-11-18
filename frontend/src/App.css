@@ -1,0 +1,195 @@
+main.layout {
+  display: flex;
+  height: 100%;
+}
+
+.sidebar {
+  width: 32rem;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  background: #fff;
+  box-shadow: 4px 0 32px rgba(15, 23, 42, 0.08);
+  z-index: 2;
+  height: 100%;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  flex: 1;
+}
+
+.details h1 {
+  font-size: 2rem;
+}
+
+.address {
+  color: #475569;
+  font-weight: 500;
+}
+
+.notes {
+  color: #475569;
+  line-height: 1.5;
+}
+
+.eyebrow {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.rating-panel {
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rating {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.rating .score {
+  font-size: 3rem;
+  font-weight: 700;
+}
+
+.rating .stars {
+  font-size: 1.25rem;
+  letter-spacing: 0.2rem;
+}
+
+.rating .count {
+  color: #94a3b8;
+}
+
+.rating-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.star-input {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.star {
+  font-size: 1.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #cbd5f5;
+  transition: transform 0.1s ease, color 0.15s ease;
+}
+
+.star.active,
+.star:hover,
+.star:focus-visible {
+  color: #fbbf24;
+  transform: scale(1.05);
+}
+
+.rating-form button {
+  padding: 0.85rem 1.2rem;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(120deg, #f97316, #fbbf24);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.rating-form button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.submit-feedback {
+  font-size: 0.9rem;
+}
+
+.submit-feedback.success {
+  color: #16a34a;
+}
+
+.submit-feedback.error {
+  color: #dc2626;
+}
+
+.legend {
+  margin-top: auto;
+}
+
+.legend ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dot {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+}
+
+.dot-water {
+  background: #0ea5e9;
+}
+
+.dot-bathroom {
+  background: #8b5cf6;
+}
+
+.dot-vending {
+  background: #f97316;
+}
+
+.placeholder {
+  justify-content: center;
+}
+
+.map-panel {
+  flex: 1;
+  position: relative;
+  height: 100%;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 1024px) {
+  main.layout {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+  }
+
+  .map-panel {
+    height: 70vh;
+  }
+}

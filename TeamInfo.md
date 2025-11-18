@@ -12,8 +12,6 @@
 | Member1     |  rhand7@illinois.edu  |
 | Member2     |     Srikar Girijala     |
 | Member2     |  sgiri62@illinois.edu  |
-| Member3     |     Samuel Wijaya     |
-| Member3     |  samuel67@illinois.edu  |
 
 ## Project Information
 
