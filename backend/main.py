@@ -62,7 +62,7 @@ def list_amenities(
         default=None,
         description="Filter by amenity type: Bathroom, WaterFountain, VendingMachine.",
     ),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=1500),
     offset: int = Query(default=0, ge=0),
 ):
     """

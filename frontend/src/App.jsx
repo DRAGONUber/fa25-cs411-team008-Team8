@@ -52,7 +52,7 @@ export default function App() {
   // -- 1. Fetch Data from Backend (Search Integration) --
   const fetchAmenities = async (keyword = '') => {
     try {
-      const url = new URL(`${API_BASE}/amenities?limit=200`)
+      const url = new URL(`${API_BASE}/amenities?limit=1500`)
       // If keyword exists, append it to URL
       if (keyword) url.searchParams.append('keyword', keyword)
       
