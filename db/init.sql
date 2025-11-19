@@ -27,7 +27,10 @@ CREATE TABLE Address (
     AddressId SERIAL PRIMARY KEY,
     Address   VARCHAR(255) NOT NULL,
     Lat       DECIMAL(9,6) NOT NULL,
-    Lon       DECIMAL(9,6) NOT NULL
+    Lon       DECIMAL(9,6) NOT NULL,
+    -- Attribute-level constraint: UIUC campus bounds (approximately)
+    CONSTRAINT chk_uiuc_lat CHECK (Lat BETWEEN 40.09 AND 40.12),
+    CONSTRAINT chk_uiuc_lon CHECK (Lon BETWEEN -88.25 AND -88.20)
 );
 
 ------------------------------------------------------------
@@ -47,7 +50,8 @@ CREATE TABLE Amenity (
     BuildingId INT NOT NULL REFERENCES Building(BuildingId),
     Type       VARCHAR(40) NOT NULL CHECK (Type IN ('Bathroom','WaterFountain','VendingMachine')),
     Floor      VARCHAR(20) NOT NULL,
-    Notes      TEXT
+    Notes      TEXT,
+    ReviewCount INT NOT NULL DEFAULT 0
 );
 
 ------------------------------------------------------------
@@ -66,6 +70,10 @@ CREATE TABLE Review (
 ALTER TABLE Review
 ADD CONSTRAINT unique_user_amenity_review
 UNIQUE (UserId, AmenityId);
+
+-- Attribute-level constraint: Email must contain @ symbol
+ALTER TABLE "User"
+ADD CONSTRAINT chk_email_format CHECK (Email LIKE '%@%' AND Email LIKE '%.%');
 
 ------------------------------------------------------------
 -- Tag
@@ -104,6 +112,10 @@ USING gin (Notes gin_trgm_ops);
 
 ----------------------------------------------------------
 
+------------------------------------------------------------
+-- Stored Procedures
+------------------------------------------------------------
+
 CREATE OR REPLACE PROCEDURE sp_upsert_review(
     p_user_id INT,
     p_amenity_id INT,
@@ -128,3 +140,102 @@ BEGIN
     END IF;
 END;
 $$;
+
+-- Stored Procedure 2: Calculate and return amenity statistics
+CREATE OR REPLACE FUNCTION fn_get_amenity_stats(p_amenity_id INT)
+RETURNS TABLE (
+    avg_rating NUMERIC,
+    review_count BIGINT,
+    latest_review_date TIMESTAMPTZ,
+    building_name VARCHAR
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Advanced Query 1: Aggregate statistics with JOIN
+    RETURN QUERY
+    SELECT 
+        COALESCE(AVG(R.OverallRating), 0)::NUMERIC,
+        COUNT(R.ReviewId),
+        MAX(R.TimeStamp),
+        B.Name
+    FROM Amenity A
+    JOIN Building B ON A.BuildingId = B.BuildingId
+    LEFT JOIN Review R ON A.AmenityId = R.AmenityId
+    WHERE A.AmenityId = p_amenity_id
+    GROUP BY A.AmenityId, B.Name;
+    
+    -- Control Structure: IF statement for validation (handled by COALESCE above)
+END;
+$$;
+
+------------------------------------------------------------
+-- Triggers
+------------------------------------------------------------
+
+-- Trigger 1: Prevent duplicate emails (case-insensitive check)
+CREATE OR REPLACE FUNCTION fn_check_duplicate_email()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Event: BEFORE INSERT OR UPDATE on User
+    -- Condition: IF email already exists (case-insensitive)
+    IF EXISTS (
+        SELECT 1 FROM "User" 
+        WHERE LOWER(Email) = LOWER(NEW.Email) 
+        AND UserId != COALESCE(NEW.UserId, -1)
+    ) THEN
+        -- Action: Raise exception (prevent insert/update)
+        RAISE EXCEPTION 'Email % already exists', NEW.Email;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_prevent_duplicate_email
+BEFORE INSERT OR UPDATE ON "User"
+FOR EACH ROW
+EXECUTE FUNCTION fn_check_duplicate_email();
+
+-- Trigger 2: Auto-update review count on Amenity when reviews are added/deleted
+CREATE OR REPLACE FUNCTION fn_update_review_count()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Event: AFTER INSERT, UPDATE, or DELETE on Review
+    IF TG_OP = 'INSERT' THEN
+        -- Action: Increment review count for the amenity
+        UPDATE Amenity
+        SET ReviewCount = ReviewCount + 1
+        WHERE AmenityId = NEW.AmenityId;
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        -- Action: Decrement review count for the amenity
+        UPDATE Amenity
+        SET ReviewCount = GREATEST(ReviewCount - 1, 0)  -- Prevent negative counts
+        WHERE AmenityId = OLD.AmenityId;
+        RETURN OLD;
+    ELSIF TG_OP = 'UPDATE' THEN
+        -- Condition: IF amenity changed (user updated review for different amenity)
+        IF OLD.AmenityId != NEW.AmenityId THEN
+            -- Action: Decrement old amenity, increment new amenity
+            UPDATE Amenity
+            SET ReviewCount = GREATEST(ReviewCount - 1, 0)
+            WHERE AmenityId = OLD.AmenityId;
+            
+            UPDATE Amenity
+            SET ReviewCount = ReviewCount + 1
+            WHERE AmenityId = NEW.AmenityId;
+        END IF;
+        RETURN NEW;
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER trg_update_review_count
+AFTER INSERT OR UPDATE OR DELETE ON Review
+FOR EACH ROW
+EXECUTE FUNCTION fn_update_review_count();

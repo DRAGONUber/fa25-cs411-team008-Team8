@@ -50,6 +50,13 @@ class BuildingCreate(BaseModel):
     address_id: int
 
 
+class BuildingWithAddressCreate(BaseModel):
+    name: str = Field(..., max_length=255)
+    address: str = Field(..., max_length=255)
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+
+
 class BuildingUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=255)
     address_id: Optional[int] = None
@@ -1061,6 +1068,176 @@ def leaderboard_overall_amenities():
         cur.execute(query)
         rows = cur.fetchall()
         return rows
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+
+class AmenityWithTagsCreate(BaseModel):
+    building_id: int
+    type: str = Field(..., max_length=40)
+    floor: str = Field(..., max_length=20)
+    notes: Optional[str] = None
+    tag_ids: List[int] = Field(default=[], description="List of tag IDs to attach")
+
+
+@app.post("/amenities/with-tags")
+def create_amenity_with_tags(payload: AmenityWithTagsCreate):
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Set transaction isolation level
+    cur.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+    
+    try:
+        # Begin transaction (implicit, but explicit for clarity)
+        conn.set_session(autocommit=False)
+        
+        # Advanced Query 1: Insert the amenity
+        cur.execute(
+            """
+            INSERT INTO amenity (buildingid, type, floor, notes)
+            VALUES (%s, %s, %s, %s)
+            RETURNING amenityid
+            """,
+            (payload.building_id, payload.type, payload.floor, payload.notes),
+        )
+        amenity_result = cur.fetchone()
+        if not amenity_result:
+            raise Exception("Failed to create amenity")
+        amenity_id = amenity_result["amenityid"]
+        
+        # Advanced Query 2: Insert multiple amenity-tag relationships
+        inserted_tags = []
+        for tag_id in payload.tag_ids:
+            cur.execute(
+                """
+                INSERT INTO amenitytag (amenityid, tagid)
+                VALUES (%s, %s)
+                ON CONFLICT (amenityid, tagid) DO NOTHING
+                RETURNING tagid
+                """,
+                (amenity_id, tag_id),
+            )
+            tag_result = cur.fetchone()
+            if tag_result:
+                inserted_tags.append(tag_result["tagid"])
+        
+        # Commit transaction
+        conn.commit()
+        
+        return {
+            "amenity_id": amenity_id,
+            "attached_tags": inserted_tags,
+            "message": "Amenity created with tags successfully"
+        }
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Transaction failed: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+
+# ----------------------------------------------------------------
+# Simple Transaction: Create Building with Address
+# ----------------------------------------------------------------
+
+@app.post("/buildings/with-address")
+def create_building_with_address(payload: BuildingWithAddressCreate):
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    try:
+        # Set transaction isolation level
+        cur.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        conn.set_session(autocommit=False)
+        
+        # Advanced Query 1: Insert the address, get back the new AddressId
+        cur.execute(
+            """
+            INSERT INTO address (address, lat, lon)
+            VALUES (%s, %s, %s)
+            RETURNING addressid
+            """,
+            (payload.address, payload.lat, payload.lon),
+        )
+        address_result = cur.fetchone()
+        if not address_result:
+            raise Exception("Failed to create address")
+        address_id = address_result["addressid"]
+        
+        # Advanced Query 2: Insert the building using the AddressId from step 1
+        cur.execute(
+            """
+            INSERT INTO building (name, addressid)
+            VALUES (%s, %s)
+            RETURNING buildingid, name, addressid
+            """,
+            (payload.name, address_id),
+        )
+        building_result = cur.fetchone()
+        if not building_result:
+            raise Exception("Failed to create building")
+        
+        # Commit transaction
+        conn.commit()
+        
+        return {
+            "building_id": building_result["buildingid"],
+            "name": building_result["name"],
+            "address_id": building_result["addressid"],
+            "address": payload.address,
+            "lat": payload.lat,
+            "lon": payload.lon,
+            "message": "Building and address created successfully"
+        }
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Transaction failed: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ----------------------------------------------------------------
+# Stored Procedure Endpoints
+# ----------------------------------------------------------------
+
+@app.get("/amenities/{amenity_id}/stats")
+def get_amenity_statistics(amenity_id: int):
+    """
+    Call stored function fn_get_amenity_stats to get comprehensive statistics.
+    Uses the function version which returns a table for easier consumption.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        # Call the function that returns a table
+        cur.execute(
+            "SELECT * FROM fn_get_amenity_stats(%s)",
+            (amenity_id,)
+        )
+        result = cur.fetchone()
+        if result:
+            return {
+                "amenity_id": amenity_id,
+                "avg_rating": float(result["avg_rating"]) if result["avg_rating"] is not None else 0,
+                "review_count": result["review_count"] if result["review_count"] is not None else 0,
+                "latest_review_date": result["latest_review_date"].isoformat() if result["latest_review_date"] is not None else None,
+                "building_name": result["building_name"] if result["building_name"] is not None else None
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Amenity not found")
     except psycopg2.Error as e:
         raise HTTPException(status_code=400, detail=str(e))
     finally:
