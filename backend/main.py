@@ -135,6 +135,7 @@ def list_amenities(
     query = """
         SELECT
             a.amenityid,
+            a.buildingid,
             a.type,
             a.floor,
             a.notes,
@@ -170,9 +171,11 @@ def list_amenities(
     query += """
         GROUP BY
             a.amenityid,
+            a.buildingid,
             a.type,
             a.floor,
             a.notes,
+            b.buildingid,
             b.name,
             ad.address,
             ad.lat,

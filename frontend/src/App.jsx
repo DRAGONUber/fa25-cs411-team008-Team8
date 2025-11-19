@@ -49,6 +49,24 @@ export default function App() {
   })
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false)
 
+  // Extras Popup State
+  const [showExtras, setShowExtras] = useState(false)
+  const [activeExtraSection, setActiveExtraSection] = useState('building')
+  
+  // Form states for CRUD operations
+  const [buildingForm, setBuildingForm] = useState({ name: '', address: '', lat: '', lon: '' })
+  const [amenityForm, setAmenityForm] = useState({ building_id: '', type: '', floor: '', notes: '' })
+  const [tagForm, setTagForm] = useState({ label: '' })
+  const [deleteId, setDeleteId] = useState({ building: '', amenity: '', tag: '' })
+  const [updateForm, setUpdateForm] = useState({ 
+    building: { id: '', name: '', address_id: '' },
+    amenity: { id: '', building_id: '', type: '', floor: '', notes: '' },
+    tag: { id: '', label: '' }
+  })
+  const [extrasMessage, setExtrasMessage] = useState(null)
+  const [buildingsList, setBuildingsList] = useState([])
+  const [tagsList, setTagsList] = useState([])
+
   // -- 1. Fetch Data from Backend (Search Integration) --
   const fetchAmenities = async (keyword = '') => {
     try {
@@ -64,6 +82,7 @@ export default function App() {
       // Transform SQL flat response to UI structure
       const transformed = data.map(item => ({
         amenityId: item.amenityid,
+        buildingId: item.buildingid,
         type: item.type,
         floor: item.floor,
         notes: item.notes,
@@ -140,6 +159,8 @@ export default function App() {
           <h3>${building.name}</h3>
           <p class="type">${titleCaseAmenity(amenity.type)} - Floor ${amenity.floor}</p>
           <p class="address">${address.address}</p>
+          <p class="id-info-popup"><strong>Building ID:</strong> ${amenity.buildingId ?? 'N/A'}</p>
+          <p class="id-info-popup"><strong>Amenity ID:</strong> ${amenity.amenityId ?? 'N/A'}</p>
         </article>`
       )
 
@@ -184,6 +205,261 @@ export default function App() {
       fetchLeaderboard(activeTab)
     }
   }, [showLeaderboard, activeTab])
+
+  // Fetch lists for Extras popup
+  const fetchBuildings = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/buildings?limit=500`)
+      if (res.ok) {
+        const data = await res.json()
+        setBuildingsList(data)
+      }
+    } catch (err) {
+      console.error('Error fetching buildings:', err)
+    }
+  }
+
+  const fetchTags = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/tags`)
+      if (res.ok) {
+        const data = await res.json()
+        setTagsList(data)
+      }
+    } catch (err) {
+      console.error('Error fetching tags:', err)
+    }
+  }
+
+  // Load data when Extras popup opens
+  useEffect(() => {
+    if (showExtras) {
+      fetchBuildings()
+      fetchTags()
+    }
+  }, [showExtras])
+
+  // Building CRUD operations
+  const handleCreateBuilding = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    try {
+      const res = await fetch(`${API_BASE}/buildings/with-address`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: buildingForm.name,
+          address: buildingForm.address,
+          lat: parseFloat(buildingForm.lat),
+          lon: parseFloat(buildingForm.lon)
+        })
+      })
+      if (!res.ok) {
+        // Try to get the error detail from the response
+        const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || `HTTP ${res.status}: Failed to create building`)
+      }
+      const result = await res.json()
+      setExtrasMessage({ type: 'success', text: 'Building created successfully!' })
+      setBuildingForm({ name: '', address: '', lat: '', lon: '' })
+      fetchBuildings()
+      fetchAmenities(searchTerm)
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to create building' })
+    }
+  }
+
+  const handleDeleteBuilding = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    if (!deleteId.building) {
+      setExtrasMessage({ type: 'error', text: 'Please enter a building ID' })
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE}/buildings/${deleteId.building}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) throw new Error('Failed to delete building')
+      setExtrasMessage({ type: 'success', text: 'Building deleted successfully!' })
+      setDeleteId({ ...deleteId, building: '' })
+      fetchBuildings()
+      fetchAmenities(searchTerm)
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to delete building' })
+    }
+  }
+
+  const handleUpdateBuilding = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    if (!updateForm.building.id) {
+      setExtrasMessage({ type: 'error', text: 'Please enter a building ID' })
+      return
+    }
+    try {
+      const payload = {}
+      if (updateForm.building.name) payload.name = updateForm.building.name
+      if (updateForm.building.address_id) payload.address_id = parseInt(updateForm.building.address_id)
+      
+      if (Object.keys(payload).length === 0) {
+        setExtrasMessage({ type: 'error', text: 'Please provide at least one field to update' })
+        return
+      }
+
+      const res = await fetch(`${API_BASE}/buildings/${updateForm.building.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) throw new Error('Failed to update building')
+      setExtrasMessage({ type: 'success', text: 'Building updated successfully!' })
+      setUpdateForm({ ...updateForm, building: { id: '', name: '', address_id: '' } })
+      fetchBuildings()
+      fetchAmenities(searchTerm)
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to update building' })
+    }
+  }
+
+  // Amenity CRUD operations
+  const handleCreateAmenity = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    try {
+      const res = await fetch(`${API_BASE}/amenities`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          building_id: parseInt(amenityForm.building_id),
+          type: amenityForm.type,
+          floor: amenityForm.floor,
+          notes: amenityForm.notes || null
+        })
+      })
+      if (!res.ok) throw new Error('Failed to create amenity')
+      setExtrasMessage({ type: 'success', text: 'Amenity created successfully!' })
+      setAmenityForm({ building_id: '', type: '', floor: '', notes: '' })
+      fetchAmenities(searchTerm)
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to create amenity' })
+    }
+  }
+
+  const handleDeleteAmenity = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    if (!deleteId.amenity) {
+      setExtrasMessage({ type: 'error', text: 'Please enter an amenity ID' })
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE}/amenities/${deleteId.amenity}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) throw new Error('Failed to delete amenity')
+      setExtrasMessage({ type: 'success', text: 'Amenity deleted successfully!' })
+      setDeleteId({ ...deleteId, amenity: '' })
+      fetchAmenities(searchTerm)
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to delete amenity' })
+    }
+  }
+
+  const handleUpdateAmenity = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    if (!updateForm.amenity.id) {
+      setExtrasMessage({ type: 'error', text: 'Please enter an amenity ID' })
+      return
+    }
+    try {
+      const payload = {}
+      if (updateForm.amenity.building_id) payload.building_id = parseInt(updateForm.amenity.building_id)
+      if (updateForm.amenity.type) payload.type = updateForm.amenity.type
+      if (updateForm.amenity.floor) payload.floor = updateForm.amenity.floor
+      if (updateForm.amenity.notes !== undefined) payload.notes = updateForm.amenity.notes || null
+      
+      if (Object.keys(payload).length === 0) {
+        setExtrasMessage({ type: 'error', text: 'Please provide at least one field to update' })
+        return
+      }
+
+      const res = await fetch(`${API_BASE}/amenities/${updateForm.amenity.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) throw new Error('Failed to update amenity')
+      setExtrasMessage({ type: 'success', text: 'Amenity updated successfully!' })
+      setUpdateForm({ ...updateForm, amenity: { id: '', building_id: '', type: '', floor: '', notes: '' } })
+      fetchAmenities(searchTerm)
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to update amenity' })
+    }
+  }
+
+  // Tag CRUD operations
+  const handleCreateTag = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    try {
+      const res = await fetch(`${API_BASE}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: tagForm.label })
+      })
+      if (!res.ok) throw new Error('Failed to create tag')
+      setExtrasMessage({ type: 'success', text: 'Tag created successfully!' })
+      setTagForm({ label: '' })
+      fetchTags()
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to create tag' })
+    }
+  }
+
+  const handleDeleteTag = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    if (!deleteId.tag) {
+      setExtrasMessage({ type: 'error', text: 'Please enter a tag ID' })
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE}/tags/${deleteId.tag}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) throw new Error('Failed to delete tag')
+      setExtrasMessage({ type: 'success', text: 'Tag deleted successfully!' })
+      setDeleteId({ ...deleteId, tag: '' })
+      fetchTags()
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to delete tag' })
+    }
+  }
+
+  const handleUpdateTag = async (e) => {
+    e.preventDefault()
+    setExtrasMessage(null)
+    if (!updateForm.tag.id || !updateForm.tag.label) {
+      setExtrasMessage({ type: 'error', text: 'Please enter tag ID and new label' })
+      return
+    }
+    try {
+      const res = await fetch(`${API_BASE}/tags/${updateForm.tag.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: updateForm.tag.label })
+      })
+      if (!res.ok) throw new Error('Failed to update tag')
+      setExtrasMessage({ type: 'success', text: 'Tag updated successfully!' })
+      setUpdateForm({ ...updateForm, tag: { id: '', label: '' } })
+      fetchTags()
+    } catch (err) {
+      setExtrasMessage({ type: 'error', text: err.message || 'Failed to update tag' })
+    }
+  }
+
 
   // -- 4. Handle Review Submission (Updated to POST) --
   const handleRatingSubmit = async () => {
@@ -313,6 +589,13 @@ export default function App() {
                     {submitMessage.text}
                   </p>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setShowExtras(true)}
+                  className="extras-button"
+                >
+                  Extras
+                </button>
               </div>
             </section>
           </div>
@@ -424,6 +707,272 @@ export default function App() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Extras Popup */}
+      {showExtras && (
+        <div className="leaderboard-overlay" onClick={() => setShowExtras(false)}>
+          <div className="leaderboard-popup extras-popup" onClick={(e) => e.stopPropagation()}>
+            <div className="leaderboard-header">
+              <h2>⚙️ Extras - CRUD Operations</h2>
+              <button 
+                className="close-button"
+                onClick={() => {
+                  setShowExtras(false)
+                  setExtrasMessage(null)
+                }}
+                aria-label="Close extras"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="leaderboard-tabs">
+              <button
+                className={`tab ${activeExtraSection === 'building' ? 'active' : ''}`}
+                onClick={() => setActiveExtraSection('building')}
+              >
+                Building
+              </button>
+              <button
+                className={`tab ${activeExtraSection === 'amenity' ? 'active' : ''}`}
+                onClick={() => setActiveExtraSection('amenity')}
+              >
+                Amenity
+              </button>
+              <button
+                className={`tab ${activeExtraSection === 'tag' ? 'active' : ''}`}
+                onClick={() => setActiveExtraSection('tag')}
+              >
+                Tag
+              </button>
+            </div>
+
+            <div className="leaderboard-content extras-content">
+              {extrasMessage && (
+                <p className={`submit-feedback ${extrasMessage.type}`}>
+                  {extrasMessage.text}
+                </p>
+              )}
+
+              {/* Building Section */}
+              {activeExtraSection === 'building' && (
+                <div className="extras-section">
+                  <h3>Create Building</h3>
+                  <form onSubmit={handleCreateBuilding} className="extras-form">
+                    <input
+                      type="text"
+                      placeholder="Building Name"
+                      value={buildingForm.name}
+                      onChange={(e) => setBuildingForm({ ...buildingForm, name: e.target.value })}
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="Address"
+                      value={buildingForm.address}
+                      onChange={(e) => setBuildingForm({ ...buildingForm, address: e.target.value })}
+                      required
+                    />
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Latitude"
+                      value={buildingForm.lat}
+                      onChange={(e) => setBuildingForm({ ...buildingForm, lat: e.target.value })}
+                      required
+                    />
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Longitude"
+                      value={buildingForm.lon}
+                      onChange={(e) => setBuildingForm({ ...buildingForm, lon: e.target.value })}
+                      required
+                    />
+                    <button type="submit">Create Building</button>
+                  </form>
+
+                  <h3>Update Building</h3>
+                  <form onSubmit={handleUpdateBuilding} className="extras-form">
+                    <input
+                      type="number"
+                      placeholder="Building ID"
+                      value={updateForm.building.id}
+                      onChange={(e) => setUpdateForm({ ...updateForm, building: { ...updateForm.building, id: e.target.value } })}
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="New Name (optional)"
+                      value={updateForm.building.name}
+                      onChange={(e) => setUpdateForm({ ...updateForm, building: { ...updateForm.building, name: e.target.value } })}
+                    />
+                    <input
+                      type="number"
+                      placeholder="New Address ID (optional)"
+                      value={updateForm.building.address_id}
+                      onChange={(e) => setUpdateForm({ ...updateForm, building: { ...updateForm.building, address_id: e.target.value } })}
+                    />
+                    <button type="submit">Update Building</button>
+                  </form>
+
+                  <h3>Delete Building</h3>
+                  <form onSubmit={handleDeleteBuilding} className="extras-form">
+                    <input
+                      type="number"
+                      placeholder="Building ID"
+                      value={deleteId.building}
+                      onChange={(e) => setDeleteId({ ...deleteId, building: e.target.value })}
+                      required
+                    />
+                    <button type="submit" className="delete-button">Delete Building</button>
+                  </form>
+                </div>
+              )}
+
+              {/* Amenity Section */}
+              {activeExtraSection === 'amenity' && (
+                <div className="extras-section">
+                  <h3>Create Amenity</h3>
+                  <form onSubmit={handleCreateAmenity} className="extras-form">
+                    <input
+                      type="number"
+                      placeholder="Building ID"
+                      value={amenityForm.building_id}
+                      onChange={(e) => setAmenityForm({ ...amenityForm, building_id: e.target.value })}
+                      required
+                    />
+                    <select
+                      value={amenityForm.type}
+                      onChange={(e) => setAmenityForm({ ...amenityForm, type: e.target.value })}
+                      required
+                    >
+                      <option value="">Select Type</option>
+                      <option value="Bathroom">Bathroom</option>
+                      <option value="WaterFountain">Water Fountain</option>
+                      <option value="VendingMachine">Vending Machine</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Floor"
+                      value={amenityForm.floor}
+                      onChange={(e) => setAmenityForm({ ...amenityForm, floor: e.target.value })}
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="Notes (optional)"
+                      value={amenityForm.notes}
+                      onChange={(e) => setAmenityForm({ ...amenityForm, notes: e.target.value })}
+                    />
+                    <button type="submit">Create Amenity</button>
+                  </form>
+
+                  <h3>Update Amenity</h3>
+                  <form onSubmit={handleUpdateAmenity} className="extras-form">
+                    <input
+                      type="number"
+                      placeholder="Amenity ID"
+                      value={updateForm.amenity.id}
+                      onChange={(e) => setUpdateForm({ ...updateForm, amenity: { ...updateForm.amenity, id: e.target.value } })}
+                      required
+                    />
+                    <input
+                      type="number"
+                      placeholder="New Building ID (optional)"
+                      value={updateForm.amenity.building_id}
+                      onChange={(e) => setUpdateForm({ ...updateForm, amenity: { ...updateForm.amenity, building_id: e.target.value } })}
+                    />
+                    <select
+                      value={updateForm.amenity.type}
+                      onChange={(e) => setUpdateForm({ ...updateForm, amenity: { ...updateForm.amenity, type: e.target.value } })}
+                    >
+                      <option value="">Select Type (optional)</option>
+                      <option value="Bathroom">Bathroom</option>
+                      <option value="WaterFountain">Water Fountain</option>
+                      <option value="VendingMachine">Vending Machine</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="New Floor (optional)"
+                      value={updateForm.amenity.floor}
+                      onChange={(e) => setUpdateForm({ ...updateForm, amenity: { ...updateForm.amenity, floor: e.target.value } })}
+                    />
+                    <input
+                      type="text"
+                      placeholder="New Notes (optional)"
+                      value={updateForm.amenity.notes}
+                      onChange={(e) => setUpdateForm({ ...updateForm, amenity: { ...updateForm.amenity, notes: e.target.value } })}
+                    />
+                    <button type="submit">Update Amenity</button>
+                  </form>
+
+                  <h3>Delete Amenity</h3>
+                  <form onSubmit={handleDeleteAmenity} className="extras-form">
+                    <input
+                      type="number"
+                      placeholder="Amenity ID"
+                      value={deleteId.amenity}
+                      onChange={(e) => setDeleteId({ ...deleteId, amenity: e.target.value })}
+                      required
+                    />
+                    <button type="submit" className="delete-button">Delete Amenity</button>
+                  </form>
+                </div>
+              )}
+
+              {/* Tag Section */}
+              {activeExtraSection === 'tag' && (
+                <div className="extras-section">
+                  <h3>Create Tag</h3>
+                  <form onSubmit={handleCreateTag} className="extras-form">
+                    <input
+                      type="text"
+                      placeholder="Tag Label"
+                      value={tagForm.label}
+                      onChange={(e) => setTagForm({ label: e.target.value })}
+                      required
+                    />
+                    <button type="submit">Create Tag</button>
+                  </form>
+
+                  <h3>Update Tag</h3>
+                  <form onSubmit={handleUpdateTag} className="extras-form">
+                    <input
+                      type="number"
+                      placeholder="Tag ID"
+                      value={updateForm.tag.id}
+                      onChange={(e) => setUpdateForm({ ...updateForm, tag: { ...updateForm.tag, id: e.target.value } })}
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="New Label"
+                      value={updateForm.tag.label}
+                      onChange={(e) => setUpdateForm({ ...updateForm, tag: { ...updateForm.tag, label: e.target.value } })}
+                      required
+                    />
+                    <button type="submit">Update Tag</button>
+                  </form>
+
+                  <h3>Delete Tag</h3>
+                  <form onSubmit={handleDeleteTag} className="extras-form">
+                    <input
+                      type="number"
+                      placeholder="Tag ID"
+                      value={deleteId.tag}
+                      onChange={(e) => setDeleteId({ ...deleteId, tag: e.target.value })}
+                      required
+                    />
+                    <button type="submit" className="delete-button">Delete Tag</button>
+                  </form>
+                </div>
+              )}
+
             </div>
           </div>
         </div>
