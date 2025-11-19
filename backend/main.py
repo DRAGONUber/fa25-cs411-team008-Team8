@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List
 import os
 import psycopg2
@@ -19,7 +19,10 @@ def get_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 
+# -------------------------------------------------
 # Pydantic models for request bodies
+# -------------------------------------------------
+
 class ReviewCreate(BaseModel):
     user_id: int
     amenity_id: int
@@ -31,6 +34,56 @@ class ReviewUpdate(BaseModel):
     overall_rating: Optional[float] = Field(default=None, ge=0, le=5)
     rating_details: Optional[dict] = None
 
+
+class UserCreate(BaseModel):
+    username: str = Field(..., max_length=255)
+    email: EmailStr
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[EmailStr] = None
+
+
+class BuildingCreate(BaseModel):
+    name: str = Field(..., max_length=255)
+    address_id: int
+
+
+class BuildingUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    address_id: Optional[int] = None
+
+
+class AmenityCreate(BaseModel):
+    building_id: int
+    type: str = Field(..., max_length=40)
+    floor: str = Field(..., max_length=20)
+    notes: Optional[str] = None
+
+
+class AmenityUpdate(BaseModel):
+    building_id: Optional[int] = None
+    type: Optional[str] = Field(default=None, max_length=40)
+    floor: Optional[str] = Field(default=None, max_length=20)
+    notes: Optional[str] = None
+
+
+class TagCreate(BaseModel):
+    label: str = Field(..., max_length=40)
+
+
+class TagUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, max_length=40)
+
+
+class AmenityTagCreate(BaseModel):
+    tag_id: int
+
+
+# -------------------------------------------------
+# FastAPI app + CORS
+# -------------------------------------------------
 
 app = FastAPI(title="Campus Amenities API", version="0.1.0")
 
@@ -72,7 +125,6 @@ def list_amenities(
     conn = get_conn()
     cur = conn.cursor()
 
-    # Base SELECT/JOIN part
     query = """
         SELECT
             a.amenityid,
@@ -91,16 +143,13 @@ def list_amenities(
         LEFT JOIN review r ON r.amenityid = a.amenityid
     """
 
-    # Dynamic WHERE conditions
     where_clauses = []
     params: List = []
 
-    # Type filter
     if amenity_type:
         where_clauses.append("a.type = %s")
         params.append(amenity_type)
 
-    # Keyword filter
     if keyword:
         kw = f"%{keyword.strip()}%"
         where_clauses.append(
@@ -108,12 +157,9 @@ def list_amenities(
         )
         params.extend([kw, kw, kw])
 
-    # Attach WHERE clause if we have any conditions
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
 
-    # GROUP BY, ORDER, LIMIT/OFFSET
-    # *** FIX IS HERE: Added ad.lat and ad.lon ***
     query += """
         GROUP BY
             a.amenityid,
@@ -132,7 +178,6 @@ def list_amenities(
         OFFSET %s
     """
 
-    # Add limit/offset params at the end
     params.extend([limit, offset])
 
     try:
@@ -145,9 +190,146 @@ def list_amenities(
         conn.close()
 
 
+# -------------------------------------------------------
+# GET /amenities/{amenity_id} - single amenity details
+# -------------------------------------------------------
+@app.get("/amenities/{amenity_id}")
+def get_amenity(amenity_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT
+                a.amenityid,
+                a.buildingid,
+                a.type,
+                a.floor,
+                a.notes,
+                b.name      AS building_name,
+                ad.address  AS address,
+                ad.lat,
+                ad.lon
+            FROM amenity a
+            JOIN building b ON a.buildingid = b.buildingid
+            JOIN address ad ON b.addressid = ad.addressid
+            WHERE a.amenityid = %s
+            """,
+            (amenity_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Amenity not found")
+        return row
+    finally:
+        conn.close()
+
+
+# ---------------------------------
+# POST /amenities - Create amenity
+# ---------------------------------
+@app.post("/amenities")
+def create_amenity(payload: AmenityCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO amenity (buildingid, type, floor, notes)
+            VALUES (%s, %s, %s, %s)
+            RETURNING amenityid, buildingid, type, floor, notes
+            """,
+            (payload.building_id, payload.type, payload.floor, payload.notes),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+# -----------------------------------------
+# PUT /amenities/{amenity_id} - Update amenity
+# -----------------------------------------
+@app.put("/amenities/{amenity_id}")
+def update_amenity(amenity_id: int, payload: AmenityUpdate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        set_clauses = []
+        params: List = []
+
+        if payload.building_id is not None:
+            set_clauses.append("buildingid = %s")
+            params.append(payload.building_id)
+        if payload.type is not None:
+            set_clauses.append("type = %s")
+            params.append(payload.type)
+        if payload.floor is not None:
+            set_clauses.append("floor = %s")
+            params.append(payload.floor)
+        if payload.notes is not None:
+            set_clauses.append("notes = %s")
+            params.append(payload.notes)
+
+        if not set_clauses:
+            raise HTTPException(status_code=400, detail="No fields provided to update")
+
+        params.append(amenity_id)
+        query = f"""
+            UPDATE amenity
+            SET {", ".join(set_clauses)}
+            WHERE amenityid = %s
+            RETURNING amenityid, buildingid, type, floor, notes
+        """
+
+        cur.execute(query, params)
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Amenity not found")
+
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+# --------------------------------------------
+# DELETE /amenities/{amenity_id} - Delete amenity
+# --------------------------------------------
+@app.delete("/amenities/{amenity_id}")
+def delete_amenity(amenity_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            DELETE FROM amenity
+            WHERE amenityid = %s
+            RETURNING amenityid
+            """,
+            (amenity_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Amenity not found")
+
+        conn.commit()
+        return {"deleted_amenity_id": row["amenityid"]}
+    finally:
+        conn.close()
+
 
 # ----------------------------------------------------------------
-# GET /amenities/{amenity_id}/reviews - list reviews for an amenity
+# GET /amenities/{amenity_id}/reviews - list reviews for amenity
 # ----------------------------------------------------------------
 @app.get("/amenities/{amenity_id}/reviews")
 def get_reviews_for_amenity(amenity_id: int):
@@ -318,21 +500,462 @@ def delete_review(review_id: int):
     finally:
         conn.close()
 
+
+# -----------------------------------------------
+# POST /reviews/upsert - Call stored procedure
+# -----------------------------------------------
 @app.post("/reviews/upsert")
 def upsert_review(review: ReviewCreate):
     conn = get_conn()
     cur = conn.cursor()
     try:
-        # Call the stored procedure
         cur.execute(
             "CALL sp_upsert_review(%s, %s, %s, %s)",
-            (review.user_id, review.amenity_id, review.overall_rating, Json(review.rating_details))
+            (
+                review.user_id,
+                review.amenity_id,
+                review.overall_rating,
+                Json(review.rating_details),
+            ),
         )
         conn.commit()
         return {"message": "Review upserted successfully"}
     except psycopg2.Error as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+# -----------------------------------------
+# USER CRUD
+# -----------------------------------------
+
+@app.post("/users")
+def create_user(user: UserCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO "User" (UserName, Email)
+            VALUES (%s, %s)
+            RETURNING UserId, UserName, Email, JoinDate
+            """,
+            (user.username, user.email),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/users")
+def list_users(limit: int = Query(default=50, ge=1, le=500), offset: int = Query(0, ge=0)):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT UserId, UserName, Email, JoinDate
+            FROM "User"
+            ORDER BY UserId
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        )
+        rows = cur.fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+@app.get("/users/{user_id}")
+def get_user(user_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT UserId, UserName, Email, JoinDate
+            FROM "User"
+            WHERE UserId = %s
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        return row
+    finally:
+        conn.close()
+
+
+@app.put("/users/{user_id}")
+def update_user(user_id: int, payload: UserUpdate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        set_clauses = []
+        params: List = []
+
+        if payload.username is not None:
+            set_clauses.append("UserName = %s")
+            params.append(payload.username)
+        if payload.email is not None:
+            set_clauses.append("Email = %s")
+            params.append(payload.email)
+
+        if not set_clauses:
+            raise HTTPException(status_code=400, detail="No fields provided to update")
+
+        params.append(user_id)
+        query = f"""
+            UPDATE "User"
+            SET {", ".join(set_clauses)}
+            WHERE UserId = %s
+            RETURNING UserId, UserName, Email, JoinDate
+        """
+
+        cur.execute(query, params)
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="User not found")
+
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            DELETE FROM "User"
+            WHERE UserId = %s
+            RETURNING UserId
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="User not found")
+
+        conn.commit()
+        return {"deleted_user_id": row["userid"]}
+    finally:
+        conn.close()
+
+
+# -----------------------------------------
+# BUILDING CRUD
+# -----------------------------------------
+
+@app.get("/buildings")
+def list_buildings(limit: int = Query(default=200, ge=1, le=2000), offset: int = Query(0, ge=0)):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT
+                b.buildingid,
+                b.name,
+                ad.address,
+                ad.lat,
+                ad.lon
+            FROM building b
+            JOIN address ad ON b.addressid = ad.addressid
+            ORDER BY b.name
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        )
+        rows = cur.fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+@app.get("/buildings/{building_id}")
+def get_building(building_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT
+                b.buildingid,
+                b.name,
+                ad.address,
+                ad.lat,
+                ad.lon
+            FROM building b
+            JOIN address ad ON b.addressid = ad.addressid
+            WHERE b.buildingid = %s
+            """,
+            (building_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Building not found")
+        return row
+    finally:
+        conn.close()
+
+
+@app.post("/buildings")
+def create_building(payload: BuildingCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO building (name, addressid)
+            VALUES (%s, %s)
+            RETURNING buildingid, name, addressid
+            """,
+            (payload.name, payload.address_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.put("/buildings/{building_id}")
+def update_building(building_id: int, payload: BuildingUpdate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        set_clauses = []
+        params: List = []
+
+        if payload.name is not None:
+            set_clauses.append("name = %s")
+            params.append(payload.name)
+        if payload.address_id is not None:
+            set_clauses.append("addressid = %s")
+            params.append(payload.address_id)
+
+        if not set_clauses:
+            raise HTTPException(status_code=400, detail="No fields provided to update")
+
+        params.append(building_id)
+        query = f"""
+            UPDATE building
+            SET {", ".join(set_clauses)}
+            WHERE buildingid = %s
+            RETURNING buildingid, name, addressid
+        """
+
+        cur.execute(query, params)
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Building not found")
+
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.delete("/buildings/{building_id}")
+def delete_building(building_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            DELETE FROM building
+            WHERE buildingid = %s
+            RETURNING buildingid
+            """,
+            (building_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Building not found")
+
+        conn.commit()
+        return {"deleted_building_id": row["buildingid"]}
+    finally:
+        conn.close()
+
+
+# -----------------------------------------
+# TAG CRUD
+# -----------------------------------------
+
+@app.post("/tags")
+def create_tag(payload: TagCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO tag (label)
+            VALUES (%s)
+            RETURNING tagid, label
+            """,
+            (payload.label,),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/tags")
+def list_tags():
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT tagid, label
+            FROM tag
+            ORDER BY label
+            """
+        )
+        rows = cur.fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+@app.put("/tags/{tag_id}")
+def update_tag(tag_id: int, payload: TagUpdate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        if payload.label is None:
+            raise HTTPException(status_code=400, detail="No fields provided to update")
+
+        cur.execute(
+            """
+            UPDATE tag
+            SET label = %s
+            WHERE tagid = %s
+            RETURNING tagid, label
+            """,
+            (payload.label, tag_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Tag not found")
+
+        conn.commit()
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.delete("/tags/{tag_id}")
+def delete_tag(tag_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            DELETE FROM tag
+            WHERE tagid = %s
+            RETURNING tagid
+            """,
+            (tag_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Tag not found")
+
+        conn.commit()
+        return {"deleted_tag_id": row["tagid"]}
+    finally:
+        conn.close()
+
+
+# -----------------------------------------
+# AMENITY-TAG RELATION (AmenityTag)
+# -----------------------------------------
+
+@app.post("/amenities/{amenity_id}/tags")
+def attach_tag_to_amenity(amenity_id: int, payload: AmenityTagCreate):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO amenitytag (amenityid, tagid)
+            VALUES (%s, %s)
+            ON CONFLICT (amenityid, tagid) DO NOTHING
+            RETURNING amenityid, tagid
+            """,
+            (amenity_id, payload.tag_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        # If row is None, it already existed
+        if not row:
+            return {"message": "Tag already attached to amenity"}
+        return row
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.delete("/amenities/{amenity_id}/tags/{tag_id}")
+def detach_tag_from_amenity(amenity_id: int, tag_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            DELETE FROM amenitytag
+            WHERE amenityid = %s AND tagid = %s
+            RETURNING amenityid, tagid
+            """,
+            (amenity_id, tag_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Amenity-tag relationship not found")
+
+        conn.commit()
+        return {"removed_amenity_id": row["amenityid"], "removed_tag_id": row["tagid"]}
     finally:
         conn.close()
 
@@ -442,4 +1065,3 @@ def leaderboard_overall_amenities():
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
-
