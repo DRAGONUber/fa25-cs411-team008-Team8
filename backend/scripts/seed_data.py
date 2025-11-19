@@ -26,22 +26,62 @@ gmaps = googlemaps.Client(key=GMAPS_API_KEY)
 # Helpers
 # -------------------------------------------------------------------
 
+# Rough bounding box for the state of Illinois
+IL_LAT_MIN = 36.9
+IL_LAT_MAX = 42.7
+IL_LON_MIN = -91.6
+IL_LON_MAX = -87.0
+
+
 def geocode_address(address: str):
     """
-    Use Google Maps Geocoding API to get (lat, lon) for an address.
-    Returns (lat, lon) or (None, None) if not found / error.
+    Geocodes a full street address, ideally including: street, city, state, ZIP.
+
+    - Uses the scraped address as-is (which we'll build to be full).
+    - Adds "Illinois, USA" to bias toward the right state.
+    - Restricts results to US + IL via components.
+    - Rejects anything obviously outside Illinois bounds.
+    - Logs what it's doing for easier debugging.
     """
     if not address:
         return None, None
 
+    # Use the full scraped address and add Illinois context.
+    full_query = f"{address}, Illinois, USA"
+
+    print(f"[GEOCODE] Querying: '{full_query}'")
+
     try:
-        results = gmaps.geocode(address)
-        if results:
-            loc = results[0]["geometry"]["location"]
-            return loc["lat"], loc["lng"]
+        results = gmaps.geocode(
+            full_query,
+            components={
+                "country": "US",
+                "administrative_area": "IL"
+            },
+        )
+
+        if not results:
+            print(f"[GEOCODE] WARN: No geocode result for '{full_query}'")
+            return None, None
+
+        loc = results[0]["geometry"]["location"]
+        lat, lon = loc["lat"], loc["lng"]
+
+        # Reject anything clearly outside Illinois
+        if not (IL_LAT_MIN <= lat <= IL_LAT_MAX and IL_LON_MIN <= lon <= IL_LON_MAX):
+            print(
+                f"[GEOCODE] WARN: Out-of-Illinois coords for '{full_query}' "
+                f"→ ({lat}, {lon}). Ignoring."
+            )
+            return None, None
+
+        print(f"[GEOCODE] OK: '{full_query}' → ({lat}, {lon})")
+        return lat, lon
+
     except Exception as e:
-        print(f"[ERROR] Geocoding failed for '{address}': {e}")
-    return None, None
+        print(f"[GEOCODE] ERROR: Geocoding failed for '{full_query}': {e}")
+        return None, None
+
 
 
 def fallback_random_coords():
@@ -78,8 +118,13 @@ def get_db_connection():
 
 def scrape_buildings(url: str):
     """
-    Scrapes building name and address from ALL tables on the UIUC Building List page.
-    Returns a list of dicts with keys: name, address, lat, lon.
+    Scrapes building name and FULL address from ALL tables on the UIUC Building List page.
+
+    Returns a list of dicts with keys:
+        - name
+        - address (street + city/state/ZIP when available)
+        - lat
+        - lon
     """
     buildings = {}  # unique by building_name
 
@@ -101,18 +146,33 @@ def scrape_buildings(url: str):
             rows = table.find_all("tr")
             for row in rows:
                 cols = row.find_all("td")
+
+                # Expecting something like:
+                # 0: code, 1: name, 2: street, 3: city/state/ZIP, 4: maybe ZIP or extra
                 if len(cols) >= 3:
                     raw_name = cols[1].get_text(strip=True)
-                    raw_address = cols[2].get_text(strip=True)
+
+                    # Street is usually in column index 2
+                    street_part = cols[2].get_text(strip=True)
+
+                    # If there is a fourth column, assume it holds city/state/ZIP.
+                    if len(cols) >= 4:
+                        city_part = cols[3].get_text(strip=True)
+                        raw_address = f"{street_part}, {city_part}"
+                    else:
+                        # Fallback: just use whatever is in column 2
+                        raw_address = street_part
 
                     building_name = clean_text(raw_name)
                     address = clean_text(raw_address)
 
                     if building_name and address and building_name not in buildings:
-                        # Geocode the address
+                        print(f"[SCRAPE] Found building: '{building_name}' @ '{address}'")
+
+                        # Geocode this full address
                         lat, lon = geocode_address(address)
                         if lat is None or lon is None:
-                            print(f"[WARN] No geocode match for '{address}', using fallback coords.")
+                            print(f"[SCRAPE] WARN: No valid geocode for '{address}', using fallback coords.")
                             lat, lon = fallback_random_coords()
 
                         buildings[building_name] = {
@@ -128,6 +188,7 @@ def scrape_buildings(url: str):
     except requests.RequestException as e:
         print(f"[SCRAPE] ERROR: Request failed: {e}")
         return []
+
 
 
 # -------------------------------------------------------------------
