@@ -319,6 +319,28 @@ def delete_amenity(amenity_id: int):
     conn = get_conn()
     cur = conn.cursor()
     try:
+        # First, verify the amenity exists
+        cur.execute(
+            "SELECT amenityid FROM amenity WHERE amenityid = %s",
+            (amenity_id,),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Amenity not found")
+        
+        # Delete reviews first (they have a foreign key to amenity)
+        cur.execute(
+            "DELETE FROM review WHERE amenityid = %s",
+            (amenity_id,),
+        )
+        reviews_deleted = cur.rowcount
+        
+        # Delete amenity-tag relationships (these have CASCADE, but explicit is cleaner)
+        cur.execute(
+            "DELETE FROM amenitytag WHERE amenityid = %s",
+            (amenity_id,),
+        )
+        
+        # Now delete the amenity
         cur.execute(
             """
             DELETE FROM amenity
@@ -330,10 +352,16 @@ def delete_amenity(amenity_id: int):
         row = cur.fetchone()
         if not row:
             conn.rollback()
-            raise HTTPException(status_code=404, detail="Amenity not found")
+            raise HTTPException(status_code=404, detail="Amenity not found after deletion attempt")
 
         conn.commit()
-        return {"deleted_amenity_id": row["amenityid"]}
+        return {
+            "deleted_amenity_id": row["amenityid"],
+            "reviews_deleted": reviews_deleted
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
     except psycopg2.Error as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))

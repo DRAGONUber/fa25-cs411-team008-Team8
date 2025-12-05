@@ -130,6 +130,14 @@ export default function App() {
     markersRef.current.forEach(m => map.removeLayer(m))
     markersRef.current = []
 
+    // Clear selected amenity if it's no longer in the list
+    if (selectedAmenity) {
+      const stillExists = amenities.some(a => a.amenityId === selectedAmenity.amenityId)
+      if (!stillExists) {
+        setSelectedAmenity(null)
+      }
+    }
+
     // Add new markers
     amenities.forEach((amenity) => {
       const { address, building } = amenity
@@ -361,8 +369,9 @@ export default function App() {
       setExtrasMessage({ type: 'error', text: 'Please enter an amenity ID' })
       return
     }
+    const amenityIdToDelete = parseInt(deleteId.amenity)
     try {
-      const res = await fetch(`${API_BASE}/amenities/${deleteId.amenity}`, {
+      const res = await fetch(`${API_BASE}/amenities/${amenityIdToDelete}`, {
         method: 'DELETE'
       })
       if (!res.ok) {
@@ -370,11 +379,23 @@ export default function App() {
         const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }))
         throw new Error(errorData.detail || `HTTP ${res.status}: Failed to delete amenity`)
       }
+      // Clear selected amenity if it's the one being deleted
+      if (selectedAmenity && selectedAmenity.amenityId === amenityIdToDelete) {
+        setSelectedAmenity(null)
+      }
+      
+      // Optimistically remove from state immediately for instant UI update
+      setAmenities(prev => prev.filter(a => a.amenityId !== amenityIdToDelete))
+      
       setExtrasMessage({ type: 'success', text: 'Amenity deleted successfully!' })
       setDeleteId({ ...deleteId, amenity: '' })
-      fetchAmenities(searchTerm)
+      
+      // Then refresh from server to ensure consistency
+      await fetchAmenities(searchTerm)
     } catch (err) {
       setExtrasMessage({ type: 'error', text: err.message || 'Failed to delete amenity' })
+      // On error, refresh to get current state
+      fetchAmenities(searchTerm)
     }
   }
 
