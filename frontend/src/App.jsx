@@ -105,6 +105,20 @@ export default function App() {
     fetchAmenities()
   }, [])
 
+  // Sync selectedAmenity when amenities list updates (e.g., after submitting a review)
+  useEffect(() => {
+    if (selectedAmenity) {
+      const updated = amenities.find(a => a.amenityId === selectedAmenity.amenityId)
+      if (updated && (
+        updated.review?.avgRating !== selectedAmenity.review?.avgRating ||
+        updated.review?.reviewCount !== selectedAmenity.review?.reviewCount
+      )) {
+        setSelectedAmenity(updated)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amenities])
+
   // -- 2. Map Initialization & Marker Updates --
   useEffect(() => {
     if (!mapNodeRef.current) return
@@ -527,8 +541,8 @@ export default function App() {
       }
 
       setSubmitMessage({ type: 'success', text: 'Thanks for sharing your rating!' })
-      // Refresh data to show new average
-      fetchAmenities(searchTerm)
+      // Refresh data to show new average (await so the useEffect can sync selectedAmenity)
+      await fetchAmenities(searchTerm)
     } catch (error) {
       setSubmitMessage({
         type: 'error',
