@@ -260,7 +260,8 @@ export default function App() {
         throw new Error(errorData.detail || `HTTP ${res.status}: Failed to create building`)
       }
       const result = await res.json()
-      setExtrasMessage({ type: 'success', text: 'Building created successfully!' })
+      console.log('Building created:', result)
+      setExtrasMessage({ type: 'success', text: `Building created successfully! (ID: ${result.building_id}). Note: Buildings only appear on the map when they have amenities.` })
       setBuildingForm({ name: '', address: '', lat: '', lon: '' })
       fetchBuildings()
       fetchAmenities(searchTerm)
@@ -280,7 +281,14 @@ export default function App() {
       const res = await fetch(`${API_BASE}/buildings/${deleteId.building}`, {
         method: 'DELETE'
       })
-      if (!res.ok) throw new Error('Failed to delete building')
+      if (!res.ok) {
+        // Try to get the error detail from the response
+        const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }))
+        console.error('Delete building error:', errorData)
+        throw new Error(errorData.detail || `HTTP ${res.status}: Failed to delete building`)
+      }
+      const result = await res.json()
+      console.log('Building deleted:', result)
       setExtrasMessage({ type: 'success', text: 'Building deleted successfully!' })
       setDeleteId({ ...deleteId, building: '' })
       fetchBuildings()
@@ -357,7 +365,11 @@ export default function App() {
       const res = await fetch(`${API_BASE}/amenities/${deleteId.amenity}`, {
         method: 'DELETE'
       })
-      if (!res.ok) throw new Error('Failed to delete amenity')
+      if (!res.ok) {
+        // Try to get the error detail from the response
+        const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || `HTTP ${res.status}: Failed to delete amenity`)
+      }
       setExtrasMessage({ type: 'success', text: 'Amenity deleted successfully!' })
       setDeleteId({ ...deleteId, amenity: '' })
       fetchAmenities(searchTerm)
@@ -429,7 +441,11 @@ export default function App() {
       const res = await fetch(`${API_BASE}/tags/${deleteId.tag}`, {
         method: 'DELETE'
       })
-      if (!res.ok) throw new Error('Failed to delete tag')
+      if (!res.ok) {
+        // Try to get the error detail from the response
+        const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || `HTTP ${res.status}: Failed to delete tag`)
+      }
       setExtrasMessage({ type: 'success', text: 'Tag deleted successfully!' })
       setDeleteId({ ...deleteId, tag: '' })
       fetchTags()

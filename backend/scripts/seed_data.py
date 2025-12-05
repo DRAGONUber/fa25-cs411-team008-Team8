@@ -18,7 +18,7 @@ DB_URL = os.environ.get("DATABASE_URL", "postgres://amen:amenities@db:5432/ameni
 BUILDING_LIST_URL = "https://fs.illinois.edu/building-list-by-building-number/"
 
 #move this to an env var later
-GMAPS_API_KEY = "AIzaSyDQtQbhBozbOKsMzZAdAsQmRNYxFYWIizQ"
+GMAPS_API_KEY = os.getenv("GMAPS_API_KEY")
 gmaps = googlemaps.Client(key=GMAPS_API_KEY)
 
 

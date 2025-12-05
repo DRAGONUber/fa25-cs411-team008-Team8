@@ -334,6 +334,9 @@ def delete_amenity(amenity_id: int):
 
         conn.commit()
         return {"deleted_amenity_id": row["amenityid"]}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
 
@@ -507,6 +510,9 @@ def delete_review(review_id: int):
 
         conn.commit()
         return {"deleted_review_id": row["reviewid"]}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
 
@@ -666,6 +672,9 @@ def delete_user(user_id: int):
 
         conn.commit()
         return {"deleted_user_id": row["userid"]}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
 
@@ -811,6 +820,9 @@ def delete_building(building_id: int):
 
         conn.commit()
         return {"deleted_building_id": row["buildingid"]}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
 
@@ -911,6 +923,9 @@ def delete_tag(tag_id: int):
 
         conn.commit()
         return {"deleted_tag_id": row["tagid"]}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
 
@@ -966,6 +981,9 @@ def detach_tag_from_amenity(amenity_id: int, tag_id: int):
 
         conn.commit()
         return {"removed_amenity_id": row["amenityid"], "removed_tag_id": row["tagid"]}
+    except psycopg2.Error as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
 
@@ -1092,12 +1110,12 @@ def create_amenity_with_tags(payload: AmenityWithTagsCreate):
     conn = get_conn()
     cur = conn.cursor()
     
-    # Set transaction isolation level
-    cur.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
-    
     try:
-        # Begin transaction (implicit, but explicit for clarity)
+        # Set autocommit to False FIRST, before any SQL statements
         conn.set_session(autocommit=False)
+        
+        # Now we can set transaction isolation level (optional)
+        cur.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         
         # Advanced Query 1: Insert the amenity
         cur.execute(
@@ -1159,9 +1177,11 @@ def create_building_with_address(payload: BuildingWithAddressCreate):
     cur = conn.cursor()
     
     try:
-        # Set transaction isolation level
-        cur.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        # Set autocommit to False FIRST, before any SQL statements
         conn.set_session(autocommit=False)
+        
+        # Now we can set transaction isolation level (optional, defaults are usually fine)
+        cur.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         
         # Advanced Query 1: Insert the address, get back the new AddressId
         cur.execute(
