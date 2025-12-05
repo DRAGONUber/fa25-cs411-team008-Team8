@@ -299,8 +299,25 @@ export default function App() {
       setExtrasMessage({ type: 'error', text: 'Please enter a building ID' })
       return
     }
+    const buildingIdToDelete = parseInt(deleteId.building.trim())
+    if (isNaN(buildingIdToDelete)) {
+      setExtrasMessage({ type: 'error', text: 'Please enter a valid numeric building ID' })
+      return
+    }
+    
     try {
-      const res = await fetch(`${API_BASE}/buildings/${deleteId.building}`, {
+      // Optimistically remove all amenities for this building from UI immediately
+      const amenitiesToRemove = amenities.filter(a => a.buildingId === buildingIdToDelete)
+      
+      // Clear selected amenity if it's from this building
+      if (selectedAmenity && selectedAmenity.buildingId === buildingIdToDelete) {
+        setSelectedAmenity(null)
+      }
+      
+      // Remove amenities from state immediately for visual effect
+      setAmenities(prev => prev.filter(a => a.buildingId !== buildingIdToDelete))
+      
+      const res = await fetch(`${API_BASE}/buildings/${buildingIdToDelete}`, {
         method: 'DELETE'
       })
       if (!res.ok) {
@@ -311,12 +328,22 @@ export default function App() {
       }
       const result = await res.json()
       console.log('Building deleted:', result)
-      setExtrasMessage({ type: 'success', text: 'Building deleted successfully!' })
+      
+      const deletedCount = amenitiesToRemove.length
+      setExtrasMessage({ 
+        type: 'success', 
+        text: `Building deleted successfully! ${deletedCount} amenit${deletedCount === 1 ? 'y' : 'ies'} also removed.` 
+      })
       setDeleteId({ ...deleteId, building: '' })
-      fetchBuildings()
-      fetchAmenities(searchTerm)
+      
+      // Refresh to ensure consistency
+      await fetchBuildings()
+      await fetchAmenities(searchTerm)
     } catch (err) {
       setExtrasMessage({ type: 'error', text: err.message || 'Failed to delete building' })
+      // On error, refresh to get current state
+      fetchBuildings()
+      fetchAmenities(searchTerm)
     }
   }
 

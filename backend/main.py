@@ -833,6 +833,45 @@ def delete_building(building_id: int):
     conn = get_conn()
     cur = conn.cursor()
     try:
+        # First, verify the building exists
+        cur.execute(
+            "SELECT buildingid FROM building WHERE buildingid = %s",
+            (building_id,),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Building not found")
+        
+        # Get all amenities for this building
+        cur.execute(
+            "SELECT amenityid FROM amenity WHERE buildingid = %s",
+            (building_id,),
+        )
+        amenity_ids = [row["amenityid"] for row in cur.fetchall()]
+        amenities_deleted = len(amenity_ids)
+        
+        # Delete reviews for all amenities in this building
+        reviews_deleted = 0
+        for amenity_id in amenity_ids:
+            cur.execute(
+                "DELETE FROM review WHERE amenityid = %s",
+                (amenity_id,),
+            )
+            reviews_deleted += cur.rowcount
+        
+        # Delete amenity-tag relationships for all amenities
+        for amenity_id in amenity_ids:
+            cur.execute(
+                "DELETE FROM amenitytag WHERE amenityid = %s",
+                (amenity_id,),
+            )
+        
+        # Delete all amenities for this building
+        cur.execute(
+            "DELETE FROM amenity WHERE buildingid = %s",
+            (building_id,),
+        )
+        
+        # Now delete the building
         cur.execute(
             """
             DELETE FROM building
@@ -844,10 +883,17 @@ def delete_building(building_id: int):
         row = cur.fetchone()
         if not row:
             conn.rollback()
-            raise HTTPException(status_code=404, detail="Building not found")
+            raise HTTPException(status_code=404, detail="Building not found after deletion attempt")
 
         conn.commit()
-        return {"deleted_building_id": row["buildingid"]}
+        return {
+            "deleted_building_id": row["buildingid"],
+            "amenities_deleted": amenities_deleted,
+            "reviews_deleted": reviews_deleted
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
     except psycopg2.Error as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
